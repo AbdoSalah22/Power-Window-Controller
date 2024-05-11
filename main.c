@@ -31,33 +31,38 @@ xSemaphoreHandle motorMutex;
 
 volatile long startTime;
 volatile long endTime;
+volatile char jam = 0;
 
 
 void driverUpTask(void *pvParameters){
 	xSemaphoreTake(driverUpSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( driverUpSemaphore, portMAX_DELAY );
-		xSemaphoreTake( motorMutex, portMAX_DELAY);
+		
 		
 		if(!driverUpButton && upLimit){
 			startTime = xTaskGetTickCount();
+			xSemaphoreTake( motorMutex, portMAX_DELAY);
+			
 			while(!driverUpButton && upLimit){
 				redOn();
 				motorSpin(FORWARD);
 			}
-			endTime = xTaskGetTickCount();
 			
+			xSemaphoreGive(motorMutex);
+			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
-				while(upLimit){
+				while(upLimit && !jam){
 					motorSpin(FORWARD);
 					blueOn();
 				}
+				jam = 0;
 			}
 		}
 		motorStop();
 		whiteOff();
-		xSemaphoreGive(motorMutex);
-		delayUs(100); // Short NOP to handle debouncing
+		
+		delayMs(1); // Short NOP to handle debouncing
 	}
 }
 
@@ -155,6 +160,8 @@ void jamTask(void *pvParameters){
 		xSemaphoreTake( jamSemaphore, portMAX_DELAY );
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
+		jam = 1;
+		whiteOff();
 		greenOn();
 		motorSpin(BACKWARD);
 		delayMs(500);
@@ -162,7 +169,7 @@ void jamTask(void *pvParameters){
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(100); // replace with vTaskDelay?
+		delayMs(1); // replace with vTaskDelay?
 	}
 }
 
