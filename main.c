@@ -20,6 +20,7 @@
 #define upLimit (GPIO_readPin(PORTA, PIN6))
 #define downLimit (GPIO_readPin(PORTA, PIN7))
 
+QueueHandle_t jamQueue;
 
 xSemaphoreHandle driverUpSemaphore;
 xSemaphoreHandle driverDownSemaphore;
@@ -31,7 +32,6 @@ xSemaphoreHandle motorMutex;
 
 volatile long startTime;
 volatile long endTime;
-volatile char jam = 0;
 
 
 void driverUpTask(void *pvParameters){
@@ -39,30 +39,31 @@ void driverUpTask(void *pvParameters){
 	for(;;){
 		xSemaphoreTake( driverUpSemaphore, portMAX_DELAY );
 		
-		
 		if(!driverUpButton && upLimit){
-			startTime = xTaskGetTickCount();
-			xSemaphoreTake( motorMutex, portMAX_DELAY);
+			char jamFlag = 1;
 			
+			startTime = xTaskGetTickCount();
+			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
 			while(!driverUpButton && upLimit){
 				redOn();
 				motorSpin(FORWARD);
 			}
 			
-			xSemaphoreGive(motorMutex);
+			xSemaphoreGive(motorMutex); // Unlock
 			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
-				while(upLimit && !jam){
+				while(upLimit && jamFlag){
 					motorSpin(FORWARD);
 					blueOn();
+					xQueuePeek(jamQueue, &jamFlag, 0);
 				}
-				jam = 0;
 			}
+			char sendValue = 1;
+			xQueueOverwrite(jamQueue, &sendValue);
+			motorStop();
+			whiteOff();
+			delayMs(1); // Short NOP to handle debouncing
 		}
-		motorStop();
-		whiteOff();
-		
-		delayMs(1); // Short NOP to handle debouncing
 	}
 }
 
@@ -71,27 +72,27 @@ void driverDownTask(void *pvParameters){
 	xSemaphoreTake(driverDownSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( driverDownSemaphore, portMAX_DELAY );
-		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		if(!driverDownButton && downLimit){
+		if(!driverDownButton && downLimit){			
 			startTime = xTaskGetTickCount();
+			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
 			while(!driverDownButton && downLimit){
 				redOn();
 				motorSpin(BACKWARD);
 			}
-			endTime = xTaskGetTickCount();
 			
+			xSemaphoreGive(motorMutex); // Unlock
+			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
 				while(downLimit){
 					motorSpin(BACKWARD);
 					blueOn();
 				}
 			}
+			motorStop();
+			whiteOff();
+			delayMs(1); // Short NOP to handle debouncing
 		}
-		motorStop();
-		whiteOff();
-		xSemaphoreGive(motorMutex);
-		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
@@ -100,27 +101,32 @@ void passengerUpTask(void *pvParameters){
 	xSemaphoreTake(passengerUpSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( passengerUpSemaphore, portMAX_DELAY );
-		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
 		if(!passengerUpButton && upLimit && windowLock){
+			char jamFlag = 1;
+			
 			startTime = xTaskGetTickCount();
+			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
 			while(!passengerUpButton && upLimit && windowLock){
 				redOn();
 				motorSpin(FORWARD);
 			}
-			endTime = xTaskGetTickCount();
 			
+			xSemaphoreGive(motorMutex); // Unlock
+			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
-				while(upLimit && windowLock){
+				while(upLimit && jamFlag && windowLock){
 					motorSpin(FORWARD);
 					blueOn();
+					xQueuePeek(jamQueue, &jamFlag, 0);
 				}
 			}
+			char sendValue = 1;
+			xQueueOverwrite(jamQueue, &sendValue);
+			motorStop();
+			whiteOff();
+			delayMs(1); // Short NOP to handle debouncing
 		}
-		motorStop();
-		whiteOff();
-		xSemaphoreGive(motorMutex);
-		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
@@ -129,38 +135,38 @@ void passengerDownTask(void *pvParameters){
 	xSemaphoreTake(passengerDownSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( passengerDownSemaphore, portMAX_DELAY );
-		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		if(!passengerDownButton && downLimit && windowLock){
+		if(!passengerDownButton && downLimit && windowLock){			
 			startTime = xTaskGetTickCount();
+			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
 			while(!passengerDownButton && downLimit && windowLock){
 				redOn();
 				motorSpin(BACKWARD);
 			}
-			endTime = xTaskGetTickCount();
 			
+			xSemaphoreGive(motorMutex); // Unlock
+			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
 				while(downLimit && windowLock){
 					motorSpin(BACKWARD);
 					blueOn();
 				}
 			}
+			motorStop();
+			whiteOff();
+			delayMs(1); // Short NOP to handle debouncing
 		}
-		motorStop();
-		whiteOff();
-		xSemaphoreGive(motorMutex);
-		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
-// give mutex after counting time to enable jam and other cuts to window
+
+// Give mutex after counting time to enable jam and other cuts to window
 void jamTask(void *pvParameters){
 	xSemaphoreTake(driverUpSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( jamSemaphore, portMAX_DELAY );
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		jam = 1;
 		whiteOff();
 		greenOn();
 		motorSpin(BACKWARD);
@@ -169,7 +175,6 @@ void jamTask(void *pvParameters){
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(1); // replace with vTaskDelay?
 	}
 }
 
@@ -250,11 +255,6 @@ void GPIOD_Handler(void) {
         GPIO_PORTD_ICR_R |= (1 << 7); // Clear interrupt flag for pin 7
 				portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
     }
-		
-		// Debugging
-		else{
-			whiteOn();
-		}
 }
 
 
@@ -287,6 +287,9 @@ void GPIOF_Handler(void){
 	// Give semaphore to jam task
 	xSemaphoreGiveFromISR( jamSemaphore, &xHigherPriorityTaskWoken );
 	
+	char jamFlag = 0;
+	xQueueOverwriteFromISR(jamQueue, &jamFlag, &xHigherPriorityTaskWoken);
+	
 	// Clear the interrupt flag of PORTF
   GPIOF->ICR = 0x11;
 	portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
@@ -301,6 +304,10 @@ int main(void) {
 	PortF_Init();
 	LED_init();
 	
+	char initValue = 1;
+	jamQueue = xQueueCreate(1, sizeof(int));
+	xQueueSendToBack(jamQueue, &initValue, 0);
+	
 	
 	driverUpSemaphore = xSemaphoreCreateBinary();
 	driverDownSemaphore = xSemaphoreCreateBinary();
@@ -310,13 +317,11 @@ int main(void) {
 	
 	motorMutex = xSemaphoreCreateMutex();
 
-
-	xTaskCreate(driverUpTask, "driverUp", 40, NULL, 2, NULL);
-	xTaskCreate(driverDownTask, "driverDown", 40, NULL, 2, NULL);
+	xTaskCreate(driverUpTask, "driverUp", 40, NULL, 3, NULL);
+	xTaskCreate(driverDownTask, "driverDown", 40, NULL, 3, NULL);
 	xTaskCreate(passengerUpTask, "passengerUp", 40, NULL, 2, NULL);
 	xTaskCreate(passengerDownTask, "passengerDown", 40, NULL, 2, NULL);
-
-	xTaskCreate(jamTask, "jam", 40, NULL, 3, NULL);
+	xTaskCreate(jamTask, "jam", 40, NULL, 4, NULL);
 
 	vTaskStartScheduler();
 
