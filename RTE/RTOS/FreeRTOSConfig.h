@@ -47,7 +47,7 @@
 extern uint32_t SystemCoreClock;
 
 #define configCPU_CLOCK_HZ                    (SystemCoreClock)
-#define configTICK_RATE_HZ                    ((TickType_t)1)
+#define configTICK_RATE_HZ                    ((TickType_t)1000)
 #define configTOTAL_HEAP_SIZE                 ((size_t)(4096))
 #define configMINIMAL_STACK_SIZE              ((unsigned short)130)
 #define configCHECK_FOR_STACK_OVERFLOW        0

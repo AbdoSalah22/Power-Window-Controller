@@ -17,7 +17,6 @@
 
 #define windowLock (GPIO_readPin(PORTA, PIN4))
 
-//Limit Switches? on port E? make it as task? or just flags? (MUST BE INTERRUPTS)
 #define upLimit (GPIO_readPin(PORTA, PIN6))
 #define downLimit (GPIO_readPin(PORTA, PIN7))
 
@@ -30,6 +29,9 @@ xSemaphoreHandle jamSemaphore;
 
 xSemaphoreHandle motorMutex;
 
+volatile long startTime;
+volatile long endTime;
+
 
 void driverUpTask(void *pvParameters){
 	xSemaphoreTake(driverUpSemaphore, 0);
@@ -38,32 +40,24 @@ void driverUpTask(void *pvParameters){
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
 		if(!driverUpButton && upLimit){
-			redOn();
-			motorSpin(FORWARD);
-			delayMs(100);
-			
-			if(!driverUpButton && upLimit){
-				while(!driverUpButton && upLimit){
-					motorSpin(FORWARD);
-					greenOn();
-				}
-				motorStop();
-				whiteOff();
-				xSemaphoreGive(motorMutex);
+			startTime = xTaskGetTickCount();
+			while(!driverUpButton && upLimit){
+				redOn();
+				motorSpin(FORWARD);
 			}
+			endTime = xTaskGetTickCount();
 			
-			// Automatic movement until limit switch is pressed
-			else{
+			if((endTime - startTime < 100)){
 				while(upLimit){
 					motorSpin(FORWARD);
-					blueOn();	
+					blueOn();
 				}
 			}
 		}
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(1);
+		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
@@ -75,22 +69,14 @@ void driverDownTask(void *pvParameters){
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
 		if(!driverDownButton && downLimit){
-			redOn();
-			motorSpin(BACKWARD);
-			delayMs(100);
-			
-			if(!driverDownButton && downLimit){
-				while(!driverDownButton && downLimit){
-					motorSpin(BACKWARD);
-					greenOn();
-				}
-				motorStop();
-				whiteOff();
-				xSemaphoreGive(motorMutex);
+			startTime = xTaskGetTickCount();
+			while(!driverDownButton && downLimit){
+				redOn();
+				motorSpin(BACKWARD);
 			}
+			endTime = xTaskGetTickCount();
 			
-			// Automatic movement until limit switch is pressed
-			else{
+			if((endTime - startTime < 100)){
 				while(downLimit){
 					motorSpin(BACKWARD);
 					blueOn();
@@ -100,7 +86,7 @@ void driverDownTask(void *pvParameters){
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(1);
+		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
@@ -111,24 +97,16 @@ void passengerUpTask(void *pvParameters){
 		xSemaphoreTake( passengerUpSemaphore, portMAX_DELAY );
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		if(!passengerUpButton && windowLock && upLimit){
-			redOn();
-			motorSpin(FORWARD);
-			delayMs(100);
-			
-			if(!passengerUpButton && windowLock && upLimit){
-				while(!passengerUpButton && windowLock && upLimit){
-					motorSpin(FORWARD);
-					greenOn();
-				}
-				motorStop();
-				whiteOff();
-				xSemaphoreGive(motorMutex);
+		if(!passengerUpButton && upLimit && windowLock){
+			startTime = xTaskGetTickCount();
+			while(!passengerUpButton && upLimit && windowLock){
+				redOn();
+				motorSpin(FORWARD);
 			}
+			endTime = xTaskGetTickCount();
 			
-			// Automatic movement until limit switch is pressed
-			else{
-				while(upLimit){
+			if((endTime - startTime < 100)){
+				while(upLimit && windowLock){
 					motorSpin(FORWARD);
 					blueOn();
 				}
@@ -137,10 +115,9 @@ void passengerUpTask(void *pvParameters){
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(1);
+		delayUs(100); // Short NOP to handle debouncing
 	}
 }
-
 
 
 void passengerDownTask(void *pvParameters){
@@ -149,24 +126,16 @@ void passengerDownTask(void *pvParameters){
 		xSemaphoreTake( passengerDownSemaphore, portMAX_DELAY );
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		if(!passengerDownButton && windowLock && downLimit){
-			redOn();
-			motorSpin(BACKWARD);
-			delayMs(100); // Replace with vTaskDelay?
-			
-			if(!passengerDownButton && windowLock && downLimit){
-				while(!passengerDownButton && windowLock && downLimit){
-					motorSpin(BACKWARD);
-					greenOn();
-				}
-				motorStop();
-				whiteOff();
-				xSemaphoreGive(motorMutex);
+		if(!passengerDownButton && downLimit && windowLock){
+			startTime = xTaskGetTickCount();
+			while(!passengerDownButton && downLimit && windowLock){
+				redOn();
+				motorSpin(BACKWARD);
 			}
+			endTime = xTaskGetTickCount();
 			
-			// Automatic movement until limit switch is pressed
-			else{
-				while(downLimit){
+			if((endTime - startTime < 100)){
+				while(downLimit && windowLock){
 					motorSpin(BACKWARD);
 					blueOn();
 				}
@@ -175,26 +144,25 @@ void passengerDownTask(void *pvParameters){
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		delayMs(1);
+		delayUs(100); // Short NOP to handle debouncing
 	}
 }
 
-
-
+// give mutex after counting time to enable jam and other cuts to window
 void jamTask(void *pvParameters){
 	xSemaphoreTake(driverUpSemaphore, 0);
 	for(;;){
 		xSemaphoreTake( jamSemaphore, portMAX_DELAY );
 		xSemaphoreTake( motorMutex, portMAX_DELAY);
 		
-		redOn();
+		greenOn();
 		motorSpin(BACKWARD);
 		delayMs(500);
 		
 		motorStop();
 		whiteOff();
 		xSemaphoreGive(motorMutex);
-		vTaskDelay(10);
+		delayMs(100); // replace with vTaskDelay?
 	}
 }
 
@@ -275,6 +243,11 @@ void GPIOD_Handler(void) {
         GPIO_PORTD_ICR_R |= (1 << 7); // Clear interrupt flag for pin 7
 				portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
     }
+		
+		// Debugging
+		else{
+			whiteOn();
+		}
 }
 
 
