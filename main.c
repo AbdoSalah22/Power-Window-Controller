@@ -20,6 +20,7 @@
 #define upLimit (GPIO_readPin(PORTA, PIN6))
 #define downLimit (GPIO_readPin(PORTA, PIN7))
 
+QueueHandle_t driverQueue;
 QueueHandle_t jamQueue;
 
 xSemaphoreHandle driverUpSemaphore;
@@ -104,6 +105,7 @@ void passengerUpTask(void *pvParameters){
 		
 		if(!passengerUpButton && upLimit && windowLock){
 			char jamFlag = 1;
+			char driverFlag = 1;
 			
 			startTime = xTaskGetTickCount();
 			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
@@ -115,13 +117,14 @@ void passengerUpTask(void *pvParameters){
 			xSemaphoreGive(motorMutex); // Unlock
 			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
-				while(upLimit && jamFlag && windowLock){
+				while(upLimit && jamFlag && driverFlag && windowLock){
 					motorSpin(FORWARD);
 					blueOn();
-					xQueuePeek(jamQueue, &jamFlag, 0);
+					xQueuePeek(driverQueue, &driverFlag, 0);
 				}
 			}
 			char sendValue = 1;
+			xQueueOverwrite(driverQueue, &sendValue);
 			xQueueOverwrite(jamQueue, &sendValue);
 			motorStop();
 			whiteOff();
@@ -136,7 +139,10 @@ void passengerDownTask(void *pvParameters){
 	for(;;){
 		xSemaphoreTake( passengerDownSemaphore, portMAX_DELAY );
 		
-		if(!passengerDownButton && downLimit && windowLock){			
+		if(!passengerDownButton && downLimit && windowLock){
+			char jamFlag = 1;
+			char driverFlag = 1;
+			
 			startTime = xTaskGetTickCount();
 			xSemaphoreTake( motorMutex, portMAX_DELAY); // Lock
 			while(!passengerDownButton && downLimit && windowLock){
@@ -147,11 +153,15 @@ void passengerDownTask(void *pvParameters){
 			xSemaphoreGive(motorMutex); // Unlock
 			endTime = xTaskGetTickCount();
 			if((endTime - startTime < 100)){
-				while(downLimit && windowLock){
+				while(downLimit && driverFlag && windowLock){
 					motorSpin(BACKWARD);
 					blueOn();
+					xQueuePeek(driverQueue, &driverFlag, 0);
 				}
 			}
+			char sendValue = 1;
+			xQueueOverwrite(driverQueue, &sendValue);
+			xQueueOverwrite(jamQueue, &sendValue);
 			motorStop();
 			whiteOff();
 			delayMs(1); // Short NOP to handle debouncing
@@ -231,6 +241,8 @@ void GPIOD_Handler(void) {
     // Check if pin 2 interrupt occurred
     if (GPIO_PORTD_RIS_R & (1 << 2)) {
 				xSemaphoreGiveFromISR( driverUpSemaphore, &xHigherPriorityTaskWoken );
+				char driverFlag = 0;
+				xQueueOverwriteFromISR(driverQueue, &driverFlag, &xHigherPriorityTaskWoken);
         GPIO_PORTD_ICR_R |= (1 << 2); // Clear interrupt flag for pin 2
 				portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
     }
@@ -238,6 +250,8 @@ void GPIOD_Handler(void) {
     // Check if pin 3 interrupt occurred
     else if (GPIO_PORTD_RIS_R & (1 << 3)) {
 				xSemaphoreGiveFromISR( driverDownSemaphore, &xHigherPriorityTaskWoken );
+				char driverFlag = 0;
+				xQueueOverwriteFromISR(driverQueue, &driverFlag, &xHigherPriorityTaskWoken);
         GPIO_PORTD_ICR_R |= (1 << 3); // Clear interrupt flag for pin 3
 				portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
     }
@@ -305,6 +319,8 @@ int main(void) {
 	LED_init();
 	
 	char initValue = 1;
+	driverQueue = xQueueCreate(1, sizeof(int));
+	xQueueSendToBack(driverQueue, &initValue, 0);
 	jamQueue = xQueueCreate(1, sizeof(int));
 	xQueueSendToBack(jamQueue, &initValue, 0);
 	
